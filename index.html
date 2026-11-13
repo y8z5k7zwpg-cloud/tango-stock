@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>単語ストック</title>
+<style>
+body{font-family:-apple-system,sans-serif;background:#f4f6fb;margin:0;padding:20px;color:#172033}
+main{max-width:600px;margin:auto}
+h1{font-size:26px}
+input,button{box-sizing:border-box;width:100%;padding:14px;margin:7px 0;border-radius:10px;font-size:16px}
+input{border:1px solid #ccd2df}
+button{border:0;background:#285cda;color:white;font-weight:bold}
+.card{background:white;border-radius:12px;padding:15px;margin:10px 0}
+small{color:#68758b}
+</style>
+</head>
+<body>
+<main>
+<h1>📚 単語ストック</h1>
+<small>英単語を自動保存</small>
+<input id="word" placeholder="英単語">
+<input id="meaning" placeholder="日本語の意味">
+<button onclick="addWord()">単語を登録</button>
+<input id="search" placeholder="単語を検索" oninput="render()">
+<p id="count"></p>
+<div id="list"></div>
+</main>
+<script>
+let words=JSON.parse(localStorage.getItem("vocab-stock-v1")||"[]");
+function save(){localStorage.setItem("vocab-stock-v1",JSON.stringify(words))}
+function addWord(){
+const w=document.getElementById("word").value.trim();
+const m=document.getElementById("meaning").value.trim();
+if(!w||!m){alert("英単語と意味を入力してね");return}
+words.unshift({word:w,meaning:m});
+save();render();
+document.getElementById("word").value="";
+document.getElementById("meaning").value="";
+}
+function render(){
+const list=document.getElementById("list");
+list.replaceChildren();
+const q=document.getElementById("search").value.toLowerCase();
+const shown=words.filter(x=>(x.word+" "+x.meaning).toLowerCase().includes(q));
+document.getElementById("count").textContent=words.length+"語登録済み";
+shown.forEach(x=>{
+const card=document.createElement("div");card.className="card";
+const strong=document.createElement("strong");strong.textContent=x.word;
+const p=document.createElement("p");p.textContent=x.meaning;
+card.append(strong,p);list.append(card);
+});
+}
+render();
+</script>
+</body>
+</html>
