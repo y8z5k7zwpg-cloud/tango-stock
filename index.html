@@ -60,6 +60,22 @@ placeholder="honor | 敬意を表する&#10;novel | 新しい&#10;captivate | �
 <button onclick="addBulkWords()">まとめて登録</button>
 </section>
 
+<section class="panel">
+<h3>📝 単語テスト</h3>
+<select id="testType">
+<option value="all">すべての単語から出題</option>
+<option value="weak">苦手単語だけ出題</option>
+</select>
+<button onclick="startTest(10)">10問テスト</button>
+<button onclick="startTest(30)">30問テスト</button>
+<div id="testArea"></div>
+</section>
+
+<section class="panel">
+<h3>📕 苦手単語リスト</h3>
+<div id="weakList"></div>
+</section>
+
 <input id="search" placeholder="🔍 単語を検索" oninput="render()">
 <p id="count"></p>
 <div id="list"></div>
@@ -235,6 +251,206 @@ function addBulkWords(){
   alert(added.length+"語を登録しました！"+
     (skipped?"\n未登録："+skipped+"行":""));
 }
+
+
+// ===== 単語テスト・苦手単語管理 =====
+
+const WEAK_KEY="vocab-weak-v1";
+let weakWords={};
+
+try {
+  weakWords=JSON.parse(localStorage.getItem(WEAK_KEY)||"{}");
+} catch(e) {
+  weakWords={};
+}
+
+let testQuestions=[];
+let testIndex=0;
+let testMode="all";
+let testCorrect=0;
+let answerVisible=false;
+
+function weakId(word){
+  return word.trim().toLowerCase();
+}
+
+function saveWeak(){
+  localStorage.setItem(WEAK_KEY,JSON.stringify(weakWords));
+  renderWeakList();
+}
+
+function renderWeakList(){
+  const area=document.getElementById("weakList");
+  area.replaceChildren();
+
+  const entries=Object.entries(weakWords);
+  if(!entries.length){
+    area.textContent="苦手単語はまだありません！";
+    return;
+  }
+
+  const count=document.createElement("p");
+  count.textContent=entries.length+"語が復習待ち";
+  area.append(count);
+
+  entries.forEach(([id,item])=>{
+    const card=document.createElement("div");
+    card.className="card";
+
+    const name=document.createElement("strong");
+    name.textContent=item.word;
+
+    const meaning=document.createElement("p");
+    meaning.textContent=item.meaning;
+
+    const progress=document.createElement("small");
+    progress.textContent="連続正解 "+item.streak+" / 3 回";
+
+    card.append(name,meaning,progress);
+    area.append(card);
+  });
+}
+
+function startTest(number){
+  const type=document.getElementById("testType").value;
+  testMode=type;
+
+  let pool;
+
+  if(type==="weak"){
+    pool=Object.values(weakWords).map(x=>({
+      word:x.word,
+      meaning:x.meaning
+    }));
+  }else{
+    pool=words.slice();
+  }
+
+  if(!pool.length){
+    alert(type==="weak"
+      ?"苦手単語がまだありません"
+      :"単語を先に登録してね");
+    return;
+  }
+
+  // 同じ英単語の重複出題を防ぐ
+  const unique=new Map();
+  pool.forEach(x=>unique.set(weakId(x.word),x));
+  pool=[...unique.values()];
+
+  // ランダムに並び替え
+  for(let i=pool.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [pool[i],pool[j]]=[pool[j],pool[i]];
+  }
+
+  testQuestions=pool.slice(0,number);
+  testIndex=0;
+  testCorrect=0;
+  answerVisible=false;
+
+  showQuestion();
+}
+
+function showQuestion(){
+  const area=document.getElementById("testArea");
+  area.replaceChildren();
+
+  if(testIndex>=testQuestions.length){
+    const result=document.createElement("div");
+    result.className="card";
+    result.textContent=
+      "テスト終了！ "+testQuestions.length+
+      "問中 "+testCorrect+"問正解";
+
+    const again=document.createElement("button");
+    again.textContent="もう一度テスト";
+    again.onclick=()=>startTest(testQuestions.length);
+
+    area.append(result,again);
+    renderWeakList();
+    return;
+  }
+
+  const item=testQuestions[testIndex];
+
+  const card=document.createElement("div");
+  card.className="card";
+
+  const progress=document.createElement("p");
+  progress.textContent=
+    "第 "+(testIndex+1)+" 問 / "+testQuestions.length+" 問";
+
+  const title=document.createElement("h2");
+  title.textContent=item.word;
+
+  card.append(progress,title);
+
+  if(!answerVisible){
+    const reveal=document.createElement("button");
+    reveal.textContent="答えを見る";
+    reveal.onclick=()=>{
+      answerVisible=true;
+      showQuestion();
+    };
+    card.append(reveal);
+  }else{
+    const meaning=document.createElement("h3");
+    meaning.textContent=item.meaning;
+    card.append(meaning);
+
+    const correct=document.createElement("button");
+    correct.textContent="○ 正解";
+    correct.onclick=()=>answerQuestion(true);
+
+    const wrong=document.createElement("button");
+    wrong.textContent="× わからなかった";
+    wrong.className="secondary";
+    wrong.onclick=()=>answerQuestion(false);
+
+    card.append(correct,wrong);
+  }
+
+  area.append(card);
+}
+
+function answerQuestion(correct){
+  const item=testQuestions[testIndex];
+  const id=weakId(item.word);
+
+  if(correct){
+    testCorrect++;
+
+    // 苦手テストの正解だけカウント
+    if(testMode==="weak" && weakWords[id]){
+      weakWords[id].streak++;
+
+      // 3回連続正解で苦手リスト卒業
+      if(weakWords[id].streak>=3){
+        delete weakWords[id];
+      }
+      saveWeak();
+    }
+  }else{
+    if(!weakWords[id]){
+      weakWords[id]={
+        word:item.word,
+        meaning:item.meaning,
+        streak:0
+      };
+    }else{
+      // 間違えたら連続正解をリセット
+      weakWords[id].streak=0;
+    }
+    saveWeak();
+  }
+
+  testIndex++;
+  answerVisible=false;
+  showQuestion();
+}
+
+renderWeakList();
 
 render();
 </script>
