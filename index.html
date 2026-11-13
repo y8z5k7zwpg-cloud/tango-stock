@@ -5,30 +5,69 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>単語ストック</title>
 <style>
-body{font-family:-apple-system,sans-serif;background:#f4f6fb;margin:0;padding:20px;color:#172033}
+body{font-family:-apple-system,sans-serif;background:#f4f6fb;margin:0;padding:18px;color:#172033}
 main{max-width:600px;margin:auto}
 h1{font-size:26px}
-input,button{box-sizing:border-box;width:100%;padding:14px;margin:7px 0;border-radius:10px;font-size:16px}
-input{border:1px solid #ccd2df}
+input,select,textarea,button{box-sizing:border-box;width:100%;padding:13px;margin:6px 0;border-radius:10px;font-size:16px}
+input,select,textarea{border:1px solid #ccd2df;background:white}
 button{border:0;background:#285cda;color:white;font-weight:bold}
-.card{background:white;border-radius:12px;padding:15px;margin:10px 0}
+button.secondary{background:#e4eafa;color:#2049a6}
+button:disabled{opacity:.5}
+.card,.panel{background:white;border-radius:12px;padding:14px;margin:12px 0}
 small{color:#68758b}
+.row{display:flex;gap:8px;align-items:center}
+.row input{flex:1;min-width:0}
+.row button{width:auto;flex-shrink:0}
+#status{white-space:pre-wrap}
+textarea{min-height:130px}
 </style>
 </head>
 <body>
 <main>
 <h1>📚 単語ストック</h1>
-<small>英単語を自動保存</small>
+<small>単語を端末内に自動保存</small>
+
+<section class="panel">
+<h3>✏️ 手動登録</h3>
 <input id="word" placeholder="英単語">
 <input id="meaning" placeholder="日本語の意味">
 <button onclick="addWord()">単語を登録</button>
-<input id="search" placeholder="単語を検索" oninput="render()">
+</section>
+
+<section class="panel">
+<h3>📷 写真から登録</h3>
+<select id="mode">
+<option value="both">英単語＋日本語訳を読み取る</option>
+<option value="english">英単語を読み取り、日本語訳を自動取得</option>
+</select>
+<input type="file" id="photo" accept="image/*">
+<button id="scanButton" onclick="scanPhoto()">写真を読み取る</button>
+<p id="status"></p>
+<div id="preview" hidden>
+<p>読み取り結果を確認・修正してね。</p>
+<small>1行に「英単語 | 日本語訳」の形式で入力。訳がない場合は英単語だけでもOK。</small>
+<textarea id="results"></textarea>
+<button onclick="translateMissing()">空欄の日本語訳を自動取得</button>
+<button onclick="saveBulk()">まとめて登録</button>
+</div>
+</section>
+
+<input id="search" placeholder="🔍 単語を検索" oninput="render()">
 <p id="count"></p>
 <div id="list"></div>
 </main>
+
 <script>
-let words=JSON.parse(localStorage.getItem("vocab-stock-v1")||"[]");
-function save(){localStorage.setItem("vocab-stock-v1",JSON.stringify(words))}
+const KEY="vocab-stock-v1";
+let words=[];
+try{
+const stored=JSON.parse(localStorage.getItem(KEY)||"[]");
+words=Array.isArray(stored)?stored:[];
+}catch(e){words=[]}
+
+function save(){
+localStorage.setItem(KEY,JSON.stringify(words));
+}
 function addWord(){
 const w=document.getElementById("word").value.trim();
 const m=document.getElementById("meaning").value.trim();
@@ -45,13 +84,119 @@ const q=document.getElementById("search").value.toLowerCase();
 const shown=words.filter(x=>(x.word+" "+x.meaning).toLowerCase().includes(q));
 document.getElementById("count").textContent=words.length+"語登録済み";
 shown.forEach(x=>{
-const card=document.createElement("div");card.className="card";
-const strong=document.createElement("strong");strong.textContent=x.word;
-const p=document.createElement("p");p.textContent=x.meaning;
-card.append(strong,p);list.append(card);
+const card=document.createElement("div");
+card.className="card";
+const strong=document.createElement("strong");
+strong.textContent=x.word;
+const p=document.createElement("p");
+p.textContent=x.meaning;
+card.append(strong,p);
+list.append(card);
 });
+}
+function setStatus(message){
+document.getElementById("status").textContent=message;
+}
+function parseLines(){
+return document.getElementById("results").value
+.split("\n").map(line=>{
+const parts=line.split(/\s*[|｜\t]\s*/);
+return {word:(parts.shift()||"").trim(),meaning:parts.join(" | ").trim()};
+}).filter(x=>x.word);
+}
+async function translateWord(word){
+const url="https://api.mymemory.translated.net/get?q="+
+encodeURIComponent(word)+"&langpair=en|ja";
+const response=await fetch(url);
+if(!response.ok)throw Error("翻訳サービスに接続できません");
+const data=await response.json();
+const result=data.responseData?.translatedText||"";
+if(!result||result.toLowerCase()===word.toLowerCase())return "";
+return result;
+}
+async function translateMissing(){
+const rows=parseLines();
+if(!rows.length){alert("単語がありません");return}
+setStatus("日本語訳を取得中...");
+for(let i=0;i<rows.length;i++){
+if(!rows[i].meaning){
+try{
+rows[i].meaning=await translateWord(rows[i].word);
+}catch(e){}
+}
+document.getElementById("results").value=
+rows.map(x=>x.word+" | "+x.meaning).join("\n");
+setStatus((i+1)+"/"+rows.length+"語を処理しました");
+await new Promise(r=>setTimeout(r,350));
+}
+setStatus("翻訳が完了しました。内容を確認してください。");
+}
+function extractLines(text,mode){
+const lines=text.split(/\n/).map(x=>x.trim()).filter(Boolean);
+const output=[];
+for(const line of lines){
+if(mode==="english"){
+const matches=line.match(/\b[A-Za-z][A-Za-z'-]{1,}\b/g)||[];
+for(const w of matches)output.push(w+" | ");
+}else{
+const match=line.match(/^([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,3})\s*[:：\-–\t ]+\s*(.+)$/);
+if(match)output.push(match[1]+" | "+match[2]);
+else if(/^[A-Za-z][A-Za-z'-]*$/.test(line))output.push(line+" | ");
+}
+}
+return [...new Set(output)].join("\n");
+}
+async function scanPhoto(){
+const file=document.getElementById("photo").files[0];
+if(!file){alert("写真を選んでね");return}
+const button=document.getElementById("scanButton");
+button.disabled=true;
+document.getElementById("preview").hidden=true;
+try{
+setStatus("文字認識エンジンを準備中...");
+if(!window.Tesseract){
+await new Promise((resolve,reject)=>{
+const script=document.createElement("script");
+script.src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+script.onload=resolve;script.onerror=reject;
+document.head.appendChild(script);
+});
+}
+const mode=document.getElementById("mode").value;
+const lang=mode==="both"?"eng+jpn":"eng";
+setStatus("写真を読み取り中...少し時間がかかります。");
+const worker=await Tesseract.createWorker(lang);
+let text="";
+try{
+const result=await worker.recognize(file);
+text=result.data.text||"";
+}finally{
+await worker.terminate();
+}
+const extracted=extractLines(text,mode);
+document.getElementById("results").value=extracted||text;
+document.getElementById("preview").hidden=false;
+setStatus("読み取り完了。誤認識があれば修正してね。");
+if(mode==="english"&&extracted)await translateMissing();
+}catch(e){
+setStatus("読み取りに失敗しました。通信状況を確認して再試行してください。\n"+e.message);
+}finally{button.disabled=false}
+}
+function saveBulk(){
+const rows=parseLines();
+const valid=rows.filter(x=>x.word&&x.meaning);
+if(!valid.length){
+alert("英単語と日本語訳を入力してください");
+return;
+}
+words.unshift(...valid);
+save();render();
+document.getElementById("results").value="";
+document.getElementById("preview").hidden=true;
+setStatus(valid.length+"語を登録しました！");
 }
 render();
 </script>
 </body>
 </html>
+
